@@ -174,7 +174,7 @@
         
         .cam-placeholder { color: #AAA; font-size: 0.9rem; text-align: center; padding: 20px; line-height: 1.5; }
 
-        /* 찰칵! 촬영 플래시 효과 레이어 */
+        /* 촬영 플래시 효과 레이어 */
         .flash-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -238,7 +238,7 @@
         .btn-cam { background: var(--primary); color: #FFF; flex: 2; }
         .btn-switch { background: #4A5568; color: #FFF; flex: 1; font-size: 0.85rem; }
         
-        /* 찰칵 셔터음 전용 버튼 */
+        /* 찰칵 포즈 촬영 버튼 (무음) */
         .btn-shutter {
             background: linear-gradient(135deg, #FF6B6B, #FF4757);
             color: #FFF;
@@ -343,8 +343,8 @@
             </div>
         </div>
 
-        <!-- 📸 카메라 셔터음 전용 버튼 -->
-        <button class="btn btn-shutter" onclick="takePhotoWithSound()">📸 찰칵! 카메라 촬영 (셔터음 🔊)</button>
+        <!-- 📸 포즈 촬영 버튼 (소리 제거됨) -->
+        <button class="btn btn-shutter" onclick="takePhoto()">📸 찰칵! 포즈 찍기</button>
 
         <!-- 4. 이전/다음 컨트롤 -->
         <div class="nav-controls">
@@ -523,77 +523,16 @@
             updateCard();
         }
 
-        // 🔊 [업데이트] 리얼 스마트폰/DSLR 카메라 셔터음 (2단계 메카닉 찰-칵 소리)
-        function playShutterSound() {
-            try {
-                const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                const ctx = new AudioCtx();
-                const now = ctx.currentTime;
-
-                // 1단계: 미러 올라가는 '찰' 소리 (High Click)
-                const osc1 = ctx.createOscillator();
-                const gain1 = ctx.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.setValueAtTime(1200, now);
-                osc1.frequency.exponentialRampToValueAtTime(300, now + 0.04);
-                gain1.gain.setValueAtTime(0.6, now);
-                gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.04);
-                osc1.connect(gain1);
-                gain1.connect(ctx.destination);
-                osc1.start(now);
-                osc1.stop(now + 0.04);
-
-                // 노이즈 버퍼 (셔터 막이 닫히는 잔향 소리)
-                const bufferSize = ctx.sampleRate * 0.05;
-                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-                const noise = ctx.createBufferSource();
-                noise.buffer = buffer;
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'highpass';
-                filter.frequency.value = 1500;
-                const noiseGain = ctx.createGain();
-                noiseGain.gain.setValueAtTime(0.4, now);
-                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
-                noise.connect(filter);
-                filter.connect(noiseGain);
-                noiseGain.connect(ctx.destination);
-                noise.start(now);
-
-                // 2단계: 셔터 닫히는 '칵' 소리 (Low Snap - 0.04초 뒤 타격)
-                const osc2 = ctx.createOscillator();
-                const gain2 = ctx.createGain();
-                osc2.type = 'triangle';
-                osc2.frequency.setValueAtTime(700, now + 0.045);
-                osc2.frequency.exponentialRampToValueAtTime(150, now + 0.09);
-                gain2.gain.setValueAtTime(0.8, now + 0.045);
-                gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
-                osc2.connect(gain2);
-                gain2.connect(ctx.destination);
-                osc2.start(now + 0.045);
-                osc2.stop(now + 0.09);
-
-            } catch (e) {
-                console.log("Audio not supported");
-            }
-        }
-
-        // 찰칵! 버튼 클릭 시 소리 + 플래시 + 칭찬 알림 실행
-        function takePhotoWithSound() {
-            // 1. 진짜 카메라 셔터 소리 재생
-            playShutterSound();
-
-            // 2. 카메라 화면 플래시 반짝 효과
+        // 버튼 클릭 시 (소리 없이) 시각 효과만 작동
+        function takePhoto() {
+            // 1. 카메라 화면 플래시 반짝 효과
             const flash = document.getElementById('flash');
             flash.classList.add('active');
             setTimeout(() => {
                 flash.classList.remove('active');
             }, 120);
 
-            // 3. "참 잘했어요!" 칭찬 팝업 떠오르기
+            // 2. "참 잘했어요!" 칭찬 팝업 떠오르기
             const toast = document.getElementById('praise-toast');
             toast.classList.add('show');
             setTimeout(() => {
