@@ -174,7 +174,7 @@
         
         .cam-placeholder { color: #AAA; font-size: 0.9rem; text-align: center; padding: 20px; line-height: 1.5; }
 
-        /* [NEW] 찰칵! 촬영 플래시 효과 레이어 */
+        /* 찰칵! 촬영 플래시 효과 레이어 */
         .flash-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -189,7 +189,7 @@
             transition: opacity 0.03s ease-in;
         }
 
-        /* [NEW] 칭찬 알림 팝업 */
+        /* 칭찬 알림 팝업 */
         .praise-toast {
             position: absolute;
             top: 50%;
@@ -238,7 +238,7 @@
         .btn-cam { background: var(--primary); color: #FFF; flex: 2; }
         .btn-switch { background: #4A5568; color: #FFF; flex: 1; font-size: 0.85rem; }
         
-        /* [NEW] 찰칵 효과음 전용 메인 버튼 */
+        /* 찰칵 셔터음 전용 버튼 */
         .btn-shutter {
             background: linear-gradient(135deg, #FF6B6B, #FF4757);
             color: #FFF;
@@ -331,7 +331,7 @@
                 <div class="cam-placeholder" id="cam-placeholder">
                     📷 <strong>[카메라 On/Off]</strong> 버튼을 누르면<br>얼굴이 시원하게 커진 거울 화면이 켜집니다.
                 </div>
-                <!-- [NEW] 플래시 효과 & 칭찬 메시지 레이어 -->
+                <!-- 플래시 효과 & 칭찬 메시지 레이어 -->
                 <div class="flash-overlay" id="flash"></div>
                 <div class="praise-toast" id="praise-toast">📸 찰칵! 참 잘했어요! ⭐</div>
             </div>
@@ -343,8 +343,8 @@
             </div>
         </div>
 
-        <!-- [NEW] 🔊 찰칵! 촬영 효과음 버튼 -->
-        <button class="btn btn-shutter" onclick="takePhotoWithSound()">📸 찰칵! 포즈 찍기 (효과음 🔊)</button>
+        <!-- 📸 카메라 셔터음 전용 버튼 -->
+        <button class="btn btn-shutter" onclick="takePhotoWithSound()">📸 찰칵! 카메라 촬영 (셔터음 🔊)</button>
 
         <!-- 4. 이전/다음 컨트롤 -->
         <div class="nav-controls">
@@ -523,44 +523,67 @@
             updateCard();
         }
 
-        // [NEW] 웹 오디오 기반 카메라 셔터 효과음 생성 함수
+        // 🔊 [업데이트] 리얼 스마트폰/DSLR 카메라 셔터음 (2단계 메카닉 찰-칵 소리)
         function playShutterSound() {
             try {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
                 const ctx = new AudioCtx();
-                
-                // 노이즈 버퍼 (셔터 기계음 효과)
-                const bufferSize = ctx.sampleRate * 0.08; 
+                const now = ctx.currentTime;
+
+                // 1단계: 미러 올라가는 '찰' 소리 (High Click)
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(1200, now);
+                osc1.frequency.exponentialRampToValueAtTime(300, now + 0.04);
+                gain1.gain.setValueAtTime(0.6, now);
+                gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.04);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start(now);
+                osc1.stop(now + 0.04);
+
+                // 노이즈 버퍼 (셔터 막이 닫히는 잔향 소리)
+                const bufferSize = ctx.sampleRate * 0.05;
                 const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
                 const data = buffer.getChannelData(0);
                 for (let i = 0; i < bufferSize; i++) {
                     data[i] = Math.random() * 2 - 1;
                 }
-
                 const noise = ctx.createBufferSource();
                 noise.buffer = buffer;
-
                 const filter = ctx.createBiquadFilter();
                 filter.type = 'highpass';
-                filter.frequency.value = 1000;
-
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0.4, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.07);
-
+                filter.frequency.value = 1500;
+                const noiseGain = ctx.createGain();
+                noiseGain.gain.setValueAtTime(0.4, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
                 noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(ctx.destination);
+                filter.connect(noiseGain);
+                noiseGain.connect(ctx.destination);
+                noise.start(now);
 
-                noise.start();
+                // 2단계: 셔터 닫히는 '칵' 소리 (Low Snap - 0.04초 뒤 타격)
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'triangle';
+                osc2.frequency.setValueAtTime(700, now + 0.045);
+                osc2.frequency.exponentialRampToValueAtTime(150, now + 0.09);
+                gain2.gain.setValueAtTime(0.8, now + 0.045);
+                gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(now + 0.045);
+                osc2.stop(now + 0.09);
+
             } catch (e) {
                 console.log("Audio not supported");
             }
         }
 
-        // [NEW] 찰칵! 버튼 클릭 시 소리 + 플래시 + 칭찬 알림 실행
+        // 찰칵! 버튼 클릭 시 소리 + 플래시 + 칭찬 알림 실행
         function takePhotoWithSound() {
-            // 1. 셔터 소리 재생
+            // 1. 진짜 카메라 셔터 소리 재생
             playShutterSound();
 
             // 2. 카메라 화면 플래시 반짝 효과
