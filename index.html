@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>찰칵! 눈맞춤·포즈 대장 - 언어재활 모바일 웹 데모</title>
+    <title>찰칵! 눈맞춤·포즈 대장 - AI 언어재활 모바일 웹</title>
+    <!-- Google MediaPipe AI 라이브러리 (서버 필요 없는 브라우저 전용 AI) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
         :root {
             --primary: #4A90E2;
@@ -17,7 +20,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Pretendard', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg-color); color: #333; display: flex; flex-direction: column; min-height: 100vh; align-items: center; }
 
-        /* 1. 스마트폰 상단 카메라 렌즈 시선 유도 바 */
+        /* 1. 상단 카메라 렌즈 시선 유도 바 */
         .lens-prompt-bar {
             width: 100%;
             background: #111;
@@ -124,6 +127,28 @@
             font-weight: bold;
             cursor: pointer;
         }
+
+        /* 🤖 AI 전용 배너 */
+        .ai-status-banner {
+            background: #2D3748;
+            color: #FFF;
+            padding: 10px 15px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .ai-badge {
+            background: #E53E3E;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+        .ai-badge.active { background: var(--success); }
 
         /* 메인 연습 카드 스크린 */
         .screen-card {
@@ -238,7 +263,6 @@
         .btn-cam { background: var(--primary); color: #FFF; flex: 2; }
         .btn-switch { background: #4A5568; color: #FFF; flex: 1; font-size: 0.85rem; }
         
-        /* 📸 배경 테마 사진 촬영 및 자동 저장 버튼 */
         .btn-shutter {
             background: linear-gradient(135deg, #FF6B6B, #FF4757);
             color: #FFF;
@@ -307,6 +331,12 @@
 
     <div class="app-container">
 
+        <!-- 🤖 AI 상태 실시간 배너 -->
+        <div class="ai-status-banner">
+            <span>🤖 AI 시선/포즈 자동 감지</span>
+            <span class="ai-badge" id="ai-status-badge">AI OFF</span>
+        </div>
+
         <!-- 2. 컨트롤 패널 -->
         <div class="control-panel">
             <div class="section-title">
@@ -329,11 +359,11 @@
             <div class="camera-frame">
                 <video id="webcam" autoplay playsinline muted hidden></video>
                 <div class="cam-placeholder" id="cam-placeholder">
-                    📷 <strong>[카메라 On/Off]</strong> 버튼을 먼저 눌러주세요.<br>얼굴이 켜진 후 찍기 버튼을 누르면 선택한 배경 테마 카드가 완성됩니다.
+                    📷 <strong>[카메라 On/Off]</strong> 버튼을 먼저 눌러주세요.<br>카메라가 켜지면 AI가 실시간으로 시선과 포즈를 자동 감지합니다!
                 </div>
                 <!-- 플래시 효과 & 칭찬 메시지 레이어 -->
                 <div class="flash-overlay" id="flash"></div>
-                <div class="praise-toast" id="praise-toast">📸 테마 사진 카드 저장 완료! ⭐</div>
+                <div class="praise-toast" id="praise-toast">🎉 AI PASS! 사진 저장 완료! ⭐</div>
             </div>
 
             <div class="pose-display">
@@ -343,8 +373,8 @@
             </div>
         </div>
 
-        <!-- 📸 배경 테마 카드 완성 및 자동 저장 버튼 -->
-        <button class="btn btn-shutter" onclick="takeAndSavePhotoCard()">📸 찰칵! 배경 테마 사진 카드 저장</button>
+        <!-- 📸 수동 촬영 버튼 -->
+        <button class="btn btn-shutter" onclick="takeAndSavePhotoCard()">📸 찰칵! 수동 수동 촬영 & 카드 저장</button>
 
         <!-- 4. 이전/다음 컨트롤 -->
         <div class="nav-controls">
@@ -443,13 +473,76 @@
         let isCameraOn = false;
         let currentFacingMode = "user"; 
         let stream = null;
+        
+        /* AI 관련 변수 */
+        let faceMesh = null;
+        let cameraUtils = null;
+        let aiTargetDuration = 0;
+        let isAiCapturing = false;
 
         window.onload = () => {
             renderBackgrounds();
             initPoseSelectOptions();
             renderModalPoseList();
             updateCard();
+            initAiEngine();
         };
+
+        /* Google MediaPipe Face Mesh AI 초기화 */
+        function initAiEngine() {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+            faceMesh.onResults(onAiResults);
+        }
+
+        /* AI 실시간 시선/얼굴 추적 결과 콜백 */
+        function onAiResults(results) {
+            const badge = document.getElementById('ai-status-badge');
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // 눈동자 및 얼굴 중앙 좌표 추출하여 시선 정면 유무 판단
+                const nose = landmarks[1];
+                const leftEye = landmarks[33];
+                const rightEye = landmarks[263];
+
+                const eyeCenterX = (leftEye.x + rightEye.x) / 2;
+                const isLookingCenter = Math.abs(nose.x - eyeCenterX) < 0.05 && (nose.y > 0.3 && nose.y < 0.7);
+
+                if (isLookingCenter) {
+                    aiTargetDuration += 1;
+                    badge.innerText = `👀 시선 감지 중... (${Math.min(100, aiTargetDuration * 10)}%)`;
+                    badge.className = "ai-badge active";
+
+                    // 1.5초 이상 카메라 렌즈에 시선이 고정되면 자동 PASS 및 자동 사진 촬영!
+                    if (aiTargetDuration >= 12 && !isAiCapturing) {
+                        isAiCapturing = true;
+                        badge.innerText = "✨ PASS 성공!";
+                        takeAndSavePhotoCard();
+                        setTimeout(() => {
+                            aiTargetDuration = 0;
+                            isAiCapturing = false;
+                        }, 4000);
+                    }
+                } else {
+                    aiTargetDuration = Math.max(0, aiTargetDuration - 1);
+                    badge.innerText = "👀 카메라를 보세요";
+                    badge.className = "ai-badge active";
+                }
+            } else {
+                aiTargetDuration = 0;
+                badge.innerText = "🤖 얼굴 탐색 중...";
+                badge.className = "ai-badge";
+            }
+        }
 
         function renderBackgrounds() {
             const container = document.getElementById('bg-list');
@@ -523,7 +616,7 @@
             updateCard();
         }
 
-        // 🎨 [NEW] 선택한 배경 테마 + 카메라 사진 + 포즈 정보를 합성하여 '인증 사진 카드'로 저장
+        /* 포즈 및 카메라 사진 카드 저장 함수 */
         function takeAndSavePhotoCard() {
             const video = document.getElementById('webcam');
 
@@ -535,22 +628,18 @@
             const bg = backgrounds[currentBgIndex];
             const pose = poses[currentPoseIndex];
 
-            // 1. 고화질 카드 캔버스 생성 (가로 600px * 세로 850px)
             const canvas = document.createElement('canvas');
             canvas.width = 600;
             canvas.height = 850;
             const ctx = canvas.getContext('2d');
 
-            // 2. 테마 배경색 칠하기
             ctx.fillStyle = bg.color;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 3. 카드 테두리 및 상단 배경 헤더 그리기
             ctx.fillStyle = "#FFFFFF";
             ctx.roundRect(20, 20, 560, 810, 25);
             ctx.fill();
 
-            // 상단 배경 태그 박스
             ctx.fillStyle = bg.color;
             ctx.roundRect(40, 40, 520, 60, 15);
             ctx.fill();
@@ -560,19 +649,13 @@
             ctx.textAlign = "center";
             ctx.fillText(`${bg.emoji} 배경: ${bg.name}`, 300, 78);
 
-            // 4. 중앙 카메라 사진 합성 (3:4 비율)
-            const photoX = 50;
-            const photoY = 120;
-            const photoW = 500;
-            const photoH = 580;
+            const photoX = 50, photoY = 120, photoW = 500, photoH = 580;
 
             ctx.save();
-            // 사진 라운딩 처리
             ctx.beginPath();
             ctx.roundRect(photoX, photoY, photoW, photoH, 20);
             ctx.clip();
 
-            // 거울 모드 (전면 카메라) 좌표 반전 처리
             if (currentFacingMode === "user") {
                 ctx.translate(photoX + photoW, photoY);
                 ctx.scale(-1, 1);
@@ -582,7 +665,6 @@
             }
             ctx.restore();
 
-            // 5. 하단 포즈 제목 및 카드 번호 합성
             ctx.fillStyle = "#FF6B6B";
             ctx.font = "bold 20px Pretendard, sans-serif";
             ctx.textAlign = "center";
@@ -594,16 +676,14 @@
 
             ctx.fillStyle = "#888888";
             ctx.font = "18px Pretendard, sans-serif";
-            ctx.fillText("찰칵! 눈맞춤·포즈 대장 훈련 인증", 300, 810);
+            ctx.fillText("🤖 AI 눈맞춤 성공 판정 완료!", 300, 810);
 
-            // 6. 이미지 파일(PNG)로 자동 저장
             const imageUrl = canvas.toDataURL('image/png');
             const link = document.createElement('a');
-            link.download = `포즈인증카드_${bg.name}_Card${pose.id}.png`;
+            link.download = `AI포즈카드_${bg.name}_Card${pose.id}.png`;
             link.href = imageUrl;
             link.click();
 
-            // 7. 반짝 플래시 및 저장 성공 알림 팝업
             const flash = document.getElementById('flash');
             flash.classList.add('active');
             setTimeout(() => { flash.classList.remove('active'); }, 120);
@@ -650,6 +730,19 @@
                 video.hidden = false;
                 placeholder.style.display = 'none';
                 isCameraOn = true;
+
+                // AI 프레임 인식 루프 시작
+                cameraUtils = new Camera(video, {
+                    onFrame: async () => {
+                        if (isCameraOn && faceMesh) {
+                            await faceMesh.send({ image: video });
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+                cameraUtils.start();
+
             } catch (err) {
                 alert("카메라를 켤 수 없습니다. (권한 거부 또는 지원하지 않는 기기)");
             }
@@ -665,6 +758,9 @@
             video.hidden = true;
             placeholder.style.display = 'block';
             isCameraOn = false;
+
+            document.getElementById('ai-status-badge').innerText = "AI OFF";
+            document.getElementById('ai-status-badge').className = "ai-badge";
         }
     </script>
 </body>
