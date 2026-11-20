@@ -199,7 +199,7 @@
             color: #FFF;
             padding: 12px 24px;
             border-radius: 30px;
-            font-size: 1.2rem;
+            font-size: 1.1rem;
             font-weight: bold;
             box-shadow: 0 6px 20px rgba(0,0,0,0.25);
             opacity: 0;
@@ -238,7 +238,7 @@
         .btn-cam { background: var(--primary); color: #FFF; flex: 2; }
         .btn-switch { background: #4A5568; color: #FFF; flex: 1; font-size: 0.85rem; }
         
-        /* 찰칵 포즈 촬영 버튼 (무음) */
+        /* 📸 배경 테마 사진 촬영 및 자동 저장 버튼 */
         .btn-shutter {
             background: linear-gradient(135deg, #FF6B6B, #FF4757);
             color: #FFF;
@@ -329,11 +329,11 @@
             <div class="camera-frame">
                 <video id="webcam" autoplay playsinline muted hidden></video>
                 <div class="cam-placeholder" id="cam-placeholder">
-                    📷 <strong>[카메라 On/Off]</strong> 버튼을 누르면<br>얼굴이 시원하게 커진 거울 화면이 켜집니다.
+                    📷 <strong>[카메라 On/Off]</strong> 버튼을 먼저 눌러주세요.<br>얼굴이 켜진 후 찍기 버튼을 누르면 선택한 배경 테마 카드가 완성됩니다.
                 </div>
                 <!-- 플래시 효과 & 칭찬 메시지 레이어 -->
                 <div class="flash-overlay" id="flash"></div>
-                <div class="praise-toast" id="praise-toast">📸 찰칵! 참 잘했어요! ⭐</div>
+                <div class="praise-toast" id="praise-toast">📸 테마 사진 카드 저장 완료! ⭐</div>
             </div>
 
             <div class="pose-display">
@@ -343,8 +343,8 @@
             </div>
         </div>
 
-        <!-- 📸 포즈 촬영 버튼 (소리 제거됨) -->
-        <button class="btn btn-shutter" onclick="takePhoto()">📸 찰칵! 포즈 찍기</button>
+        <!-- 📸 배경 테마 카드 완성 및 자동 저장 버튼 -->
+        <button class="btn btn-shutter" onclick="takeAndSavePhotoCard()">📸 찰칵! 배경 테마 사진 카드 저장</button>
 
         <!-- 4. 이전/다음 컨트롤 -->
         <div class="nav-controls">
@@ -523,21 +523,94 @@
             updateCard();
         }
 
-        // 버튼 클릭 시 (소리 없이) 시각 효과만 작동
-        function takePhoto() {
-            // 1. 카메라 화면 플래시 반짝 효과
+        // 🎨 [NEW] 선택한 배경 테마 + 카메라 사진 + 포즈 정보를 합성하여 '인증 사진 카드'로 저장
+        function takeAndSavePhotoCard() {
+            const video = document.getElementById('webcam');
+
+            if (!isCameraOn || video.hidden) {
+                alert("카메라가 꺼져있습니다. 아래 [📹 카메라 On/Off] 버튼을 먼저 눌러주세요!");
+                return;
+            }
+
+            const bg = backgrounds[currentBgIndex];
+            const pose = poses[currentPoseIndex];
+
+            // 1. 고화질 카드 캔버스 생성 (가로 600px * 세로 850px)
+            const canvas = document.createElement('canvas');
+            canvas.width = 600;
+            canvas.height = 850;
+            const ctx = canvas.getContext('2d');
+
+            // 2. 테마 배경색 칠하기
+            ctx.fillStyle = bg.color;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 3. 카드 테두리 및 상단 배경 헤더 그리기
+            ctx.fillStyle = "#FFFFFF";
+            ctx.roundRect(20, 20, 560, 810, 25);
+            ctx.fill();
+
+            // 상단 배경 태그 박스
+            ctx.fillStyle = bg.color;
+            ctx.roundRect(40, 40, 520, 60, 15);
+            ctx.fill();
+
+            ctx.fillStyle = "#4A90E2";
+            ctx.font = "bold 26px Pretendard, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(`${bg.emoji} 배경: ${bg.name}`, 300, 78);
+
+            // 4. 중앙 카메라 사진 합성 (3:4 비율)
+            const photoX = 50;
+            const photoY = 120;
+            const photoW = 500;
+            const photoH = 580;
+
+            ctx.save();
+            // 사진 라운딩 처리
+            ctx.beginPath();
+            ctx.roundRect(photoX, photoY, photoW, photoH, 20);
+            ctx.clip();
+
+            // 거울 모드 (전면 카메라) 좌표 반전 처리
+            if (currentFacingMode === "user") {
+                ctx.translate(photoX + photoW, photoY);
+                ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0, photoW, photoH);
+            } else {
+                ctx.drawImage(video, photoX, photoY, photoW, photoH);
+            }
+            ctx.restore();
+
+            // 5. 하단 포즈 제목 및 카드 번호 합성
+            ctx.fillStyle = "#FF6B6B";
+            ctx.font = "bold 20px Pretendard, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(`CARD ${String(pose.id).padStart(2, '0')} / 50`, 300, 735);
+
+            ctx.fillStyle = "#222222";
+            ctx.font = "bold 30px Pretendard, sans-serif";
+            ctx.fillText(pose.title, 300, 775);
+
+            ctx.fillStyle = "#888888";
+            ctx.font = "18px Pretendard, sans-serif";
+            ctx.fillText("찰칵! 눈맞춤·포즈 대장 훈련 인증", 300, 810);
+
+            // 6. 이미지 파일(PNG)로 자동 저장
+            const imageUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `포즈인증카드_${bg.name}_Card${pose.id}.png`;
+            link.href = imageUrl;
+            link.click();
+
+            // 7. 반짝 플래시 및 저장 성공 알림 팝업
             const flash = document.getElementById('flash');
             flash.classList.add('active');
-            setTimeout(() => {
-                flash.classList.remove('active');
-            }, 120);
+            setTimeout(() => { flash.classList.remove('active'); }, 120);
 
-            // 2. "참 잘했어요!" 칭찬 팝업 떠오르기
             const toast = document.getElementById('praise-toast');
             toast.classList.add('show');
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 1500);
+            setTimeout(() => { toast.classList.remove('show'); }, 1800);
         }
 
         async function toggleCamera() {
